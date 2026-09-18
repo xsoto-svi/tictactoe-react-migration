@@ -1,8 +1,6 @@
 # Tic-Tac-Toe — Vanilla JavaScript → React Structure
 
-The React structure keeps the same application concepts as the existing Vanilla JS project, but moves responsibilities into the places where React handles them naturally.
-
-The main change is not the UI itself. It is **responsibility ownership**: Vanilla JS classes currently create DOM nodes, attach listeners, mutate state, and manage polling. React separates those concerns into pages, components, hooks, state, and services.
+The migration keeps the same application responsibilities, but changes **where those responsibilities live**. The Vanilla JS project is organized around classes that create DOM elements, mutate them, and manage page behavior. The React version keeps the same screens, game rules, API boundary, and visual structure, while separating UI, state, side effects, and backend communication into React-friendly layers.
 
 ## Folder structure
 
@@ -13,195 +11,139 @@ src/
 ├── assets/
 ├── components/
 │   ├── common/
+│   │   ├── Modal.jsx
+│   │   ├── AlertModal.jsx
+│   │   ├── ConfirmationModal.jsx
+│   │   ├── LoadingModal.jsx
+│   │   └── ResetGameModal.jsx
 │   ├── game/
-│   ├── howToPlay/
-│   └── lobby/
-├── hooks/
+│   │   ├── Board.jsx
+│   │   ├── Cell.jsx
+│   │   ├── ScoreBoard.jsx
+│   │   ├── GameStatusBar.jsx
+│   │   ├── GameErrorMessage.jsx
+│   │   └── LeaveGameButton.jsx
+│   ├── lobby/
+│   │   ├── CreateGameCard.jsx
+│   │   └── JoinGameCard.jsx
+│   └── how-to-play/
+│       ├── InstructionList.jsx
+│       └── InstructionItem.jsx
 ├── pages/
-├── services/
+│   ├── HomePage.jsx
+│   ├── LobbyPage.jsx
+│   ├── HowToPlayPage.jsx
+│   └── GamePage.jsx
+├── hooks/
+│   ├── useGameState.js
+│   ├── usePolling.js
+│   └── useBeforeUnload.js
 ├── state/
-├── styles/
-└── utils/
+│   ├── GameContext.jsx
+│   ├── gameReducer.js
+│   └── gameConstants.js
+├── services/
+│   ├── apiClient.js
+│   ├── gameService.js
+│   ├── roomService.js
+│   └── playerService.js
+├── utils/
+│   ├── apiError.js
+│   └── roomCode.js
+└── styles/
+    ├── global.css
+    ├── pages/
+    └── components/
 ```
 
-### `pages/`
+### What each folder does
 
-`pages/` contains the four application screens that already exist in the Vanilla JS project:
+| Folder | Responsibility | Vanilla JS source it replaces or reorganizes |
+|---|---|---|
+| `pages/` | Composes complete screens and connects them to state and behavior. | `js/pages/*` and the screen selection logic in `router.js` |
+| `components/` | Small, reusable pieces of UI. Components receive data as props and emit user actions instead of creating DOM nodes themselves. | `BoardComponent`, `CellComponent`, modal classes, and parts of `GamePage`, `LobbyPage`, and `HowToPlayPage` |
+| `hooks/` | React-specific behavior and side effects such as polling, browser lifecycle events, and access to game state. | `GamePage`/`LobbyPage` timers and event handlers, plus parts of `GameState` access |
+| `state/` | Owns shared game data and the state transitions that used to be handled by the mutable `GameState` class. | `js/game/gameState.js` and `js/game/gameConstants.js` |
+| `services/` | Handles HTTP communication without exposing `fetch()` details to UI code. | `apiClient.js` and `tictactoeApi.js` |
+| `utils/` | Small framework-independent helpers. | Reusable logic extracted from the current classes, such as room-code and API-error handling |
+| `styles/` | Keeps the existing CSS responsibilities separate from the React components. | Existing `css/` tree |
+| `assets/` | Static game assets such as X and O icons. | Existing `assets/` directory |
 
-```text
-js/pages/homePage.js        → pages/HomePage.jsx
-js/pages/howToPlayPage.js   → pages/HowToPlayPage.jsx
-js/pages/lobbyPage.js       → pages/LobbyPage.jsx
-js/pages/gamePage.js        → pages/GamePage.jsx
-```
+## What changes from Vanilla JS to React
 
-A page is responsible for composing the screen and connecting its components to the required state and behavior. The old `Page` base class is not carried over because React already provides the rendering and lifecycle model.
+**Pages stay, but their responsibility becomes smaller.** `HomePage`, `LobbyPage`, `HowToPlayPage`, and `GamePage` remain the four major screens. They no longer construct elements with `document.createElement()` or attach DOM listeners directly. JSX describes the screen, while hooks and components handle the behavior needed by that screen.
 
-### `components/`
+**Components become declarative.** The existing `BoardComponent` and `CellComponent` already suggest a good React hierarchy, so they become `Board` → `Cell`. `GamePage` is further decomposed into `ScoreBoard`, `GameStatusBar`, `GameErrorMessage`, `LeaveGameButton`, and the modal components because those are independent pieces of UI. A change in state causes React to render the new UI instead of calling methods such as `updateCell()` or `updateUI()` manually.
 
-The existing `BoardComponent` and `CellComponent` naturally become React components:
+**The mutable `GameState` becomes React state.** The game still needs the same information—room code, player symbol, board, status, winner, and scores—but updates go through a reducer/context or a state hook rather than direct property mutation. This gives every interested component a predictable source of truth.
 
-```text
-BoardComponent      → components/game/Board.jsx
-CellComponent       → components/game/Cell.jsx
-```
+**The custom `Router` becomes application-level React routing.** Navigation remains a page-level concern, but React controls which page is rendered instead of manually creating and removing page DOM trees.
 
-The component folders group UI by responsibility:
+**Polling is retained, but moved out of page classes.** The current recursive `setTimeout` polling and its in-flight guard are still valid for synchronizing two clients. A reusable `usePolling` hook owns the timer lifecycle, cleanup, and in-flight protection. The game page can use it for board updates, while the lobby/rematch flows can configure the same pattern for room readiness checks.
 
-```text
-components/
-├── game/          Board, Cell, scoreboard, game status, leave-game UI
-├── lobby/         Create-game and join-game UI
-├── howToPlay/     Instruction UI
-└── common/        Shared modal/toast UI
-```
+**The API wrapper is reorganized by backend domain.** `TicTacToeApi` currently contains every endpoint in one class. React keeps the common `apiClient`, but separates application calls into `gameService`, `roomService`, and `playerService`, matching the Spring Boot `GameController`, `RoomController`, and `PlayerController`. HTTP responses and errors stay in this service layer so components are not coupled to backend details.
 
-The important change is that components no longer create and update DOM elements themselves. Instead, they receive data through props and report user actions through callbacks. React re-renders the affected UI when that data changes.
+## Data flow
 
-### `hooks/`
-
-`hooks/` contains behavior that was previously embedded inside page classes.
-
-For example, the current `GamePage` owns asynchronous polling, lifecycle-sensitive cleanup, and other stateful behavior. In React, those responsibilities can be extracted into hooks such as:
+The main flow becomes:
 
 ```text
-useGameState
-useGamePolling
-useRoomReadyPolling
-useRematchPolling
-useBeforeUnload
-useToast
-```
-
-The polling behavior itself stays conceptually the same: the application still polls the backend and keeps an in-flight guard so multiple requests are not running at once. The difference is that React hooks control when polling starts, when it stops, and what state is updated when a response arrives.
-
-### `state/`
-
-The Vanilla JS project has a shared `GameState` object and `gameConstants.js`.
-
-Those responsibilities become:
-
-```text
-js/game/gameState.js
-    → state/gameReducer.js
-    → state/GameContext.jsx
-    → hooks/useGameState.js
-
-js/game/gameConstants.js
-    → state/gameConstants.js
-```
-
-The game data itself does not fundamentally change. What changes is how updates happen. Instead of directly mutating a shared object, components dispatch state changes and React propagates the new state to the components that depend on it.
-
-### `services/`
-
-The existing API abstraction is retained, but the single `TicTacToeApi` wrapper is divided according to the backend's domain controllers:
-
-```text
-services/
-├── apiClient.js
-├── gameService.js
-├── roomService.js
-└── playerService.js
-```
-
-The mapping is:
-
-```text
-GameController   → gameService.js
-RoomController   → roomService.js
-PlayerController → playerService.js
-```
-
-`apiClient.js` remains the low-level HTTP layer. The domain services provide the application-facing API so UI code does not need to know endpoint details.
-
-HTTP behavior also stays at this boundary. For example, a `409 Conflict` from the backend is interpreted by the service/error layer and converted into something the page or component can display, rather than being handled throughout the UI.
-
-### `utils/`
-
-`utils/` contains small, reusable logic that is not specific to rendering or React state, such as API error normalization and room-code handling.
-
-### `styles/` and `assets/`
-
-The existing CSS organization is largely retained:
-
-```text
-css/global.css              → styles/global.css
-css/pages/*                 → styles/pages/*
-css/components/*            → styles/components/*
-assets/*                    → src/assets/*
-```
-
-The styling model does not need to become fundamentally different just because the UI is React.
-
-## How the data flows
-
-The resulting flow is roughly:
-
-```text
-User interaction
-      ↓
-Component
-      ↓
+User action
+    ↓
+React component
+    ↓
 Page / hook
-      ↓
-Domain service
-      ↓
-apiClient
-      ↓
+    ↓
+State update or service call
+    ↓
 Spring Boot controller
-      ↓
-Response
-      ↓
-Service / hook
-      ↓
+    ↓
+Service response
+    ↓
 React state
-      ↓
+    ↓
 Components re-render
 ```
 
-For multiplayer synchronization, the polling hooks sit between the page/state and the services:
+For multiplayer synchronization, polling is simply another side effect in that flow:
 
 ```text
 GamePage
-   ↓
-useGamePolling
-   ↓
+    ↓
+usePolling
+    ↓
 gameService
-   ↓
-backend
-   ↓
-state update
-   ↓
+    ↓
+GameController
+    ↓
+updated board
+    ↓
+React state
+    ↓
 Board / ScoreBoard / GameStatusBar
 ```
 
-This replaces the current pattern where `GamePage` is responsible for both requesting data and manually updating the DOM.
+## Naming and decomposition
 
-## What stays the same vs. what changes
+Component files use **PascalCase** (`Board.jsx`, `GamePage.jsx`). Hooks use the React `useX` convention (`usePolling.js`, `useGameState.js`). Services, reducers, utilities, and CSS files use **camelCase or kebab-case according to their role**, keeping naming predictable across the project.
 
-### Retained
+The important decomposition is that each layer answers a different question: **pages compose screens, components render UI, hooks manage React behavior, state owns application data, and services communicate with the backend.** This reduces the amount of unrelated responsibility currently concentrated in `GamePage` and makes each part easier to change without affecting the others.
 
-- The same four major screens.
-- The same game concepts and state data.
-- The Board → Cell component hierarchy.
-- The same backend integration concept.
-- The same polling-based synchronization strategy.
-- The existing CSS organization and visual assets.
-- Domain-specific API responsibilities, now aligned with `GameController`, `RoomController`, and `PlayerController`.
+## Summary of the migration
 
-### Changed
+The React version is not a redesign of the game. The existing screens, game state, board/cell hierarchy, polling approach, backend integration, CSS, and assets are retained. The main change is the **organization of responsibilities**:
 
-- `Page` classes become functional page components.
-- `ViewTemplate` and manual DOM construction are replaced by JSX.
-- `setValue()`, `updateCell()`, and direct element manipulation are replaced by props and state-driven rendering.
-- `GameState` becomes React-managed state rather than a mutable shared object.
-- Polling and browser lifecycle behavior move into hooks.
-- The single `TicTacToeApi` wrapper is split into domain services.
-- Routing/application composition moves from the custom imperative router into the React application structure.
+```text
+Vanilla JS                         React
+────────────────────────────────────────────────────
+Page classes                  →   functional page components
+DOM construction              →   JSX
+Component classes             →   functional components
+Mutable GameState             →   Context / reducer / hooks
+Page-owned timers             →   reusable hooks
+Single TicTacToeApi           →   domain services
+Custom DOM router             →   React application routing
+Manual DOM updates            →   state-driven rendering
+```
 
-## Summary
-
-The migration is therefore mostly a **reorganization of responsibilities rather than a redesign of the application**.
-
-The Vanilla JS project already has useful boundaries around pages, components, state, services, and styles. React keeps those boundaries, but introduces two important layers—`hooks/` and `state/`—to handle behavior and state in a React-native way. The biggest architectural improvement is that UI components become declarative and focused on presentation, while pages compose them, hooks manage effects such as polling, state manages application data, and services handle communication with the Spring Boot backend.
+That structure preserves what is already working in the Vanilla JS application while making the codebase more modular, predictable, and easier to extend.
